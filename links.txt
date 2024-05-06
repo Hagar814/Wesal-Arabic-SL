@@ -1,0 +1,20 @@
+https://medium.com/@connect.hashblock/creating-an-api-in-flask-with-mysql-a-step-by-step-guide-446f08722057
+https://medium.com/@karthikeyan.ranasthala/build-a-jwt-based-authentication-rest-api-with-flask-and-mysql-5dc6d3d1cb82
+berbrain
+POST /register?fbclid=IwAR0GXDxmbw21j2cQwCfW_pU6yo_3gS4UEVdVSX0q2pKvinLkZ-iaASm5-Ts
+https://developer.okta.com/docs/guides/validate-id-tokens/main/#okta-libraries-to-help-you-verify-id-tokens
+https://medium.com/@aka-trip/otp-verification-using-python-598959e84f78
+https://www.postman.com/docking-module-geoscientist-31268739/workspace/public/collection/32158079-975309fd-de6f-4bfd-a5a2-ff42b939f954?action=share&creator=32158079 
+https://medium.com/@phone-email/python-api-for-sending-free-sms-otp-8184216e5fd9
+https://flask-jwt-extended.readthedocs.io/en/stable/blocklist_and_token_revoking.html
+Account SID AC7c6c96e5267f800c88ddba62dbf221ae
+Auth Token ef37fb8b687033245aca80bdfd6fe686
+Phone number +12513135099
+Phone number \\
+>>> from wesal  import app, db 
+>>> app.app_context().push()
+>>> v
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+ModuleNotFoundError: No module named 'model'
+>>> from wesal.model import User,Course,Lesson,Favorite,Verify,Completed_Courses,Enrolled_Courses,Temp_User
