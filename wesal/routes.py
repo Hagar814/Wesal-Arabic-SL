@@ -1,6 +1,6 @@
 from flask import request, jsonify,Response, session, send_file
 from wesal.utility import db_connection, db_write,generate_salt,generate_hash,db_read,send_login_token,validate_user,decode_jwt_token,generate_verification_code,users,courses,lessons
-from . import app, socketio
+from . import app
 from flask_socketio import emit
 import speech_recognition as sr
 from gtts import gTTS
@@ -509,42 +509,3 @@ def text_to_speech():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# Socket.IO event handlers
-@socketio.on('connect', namespace='/audio')
-def handle_connect():
-    emit('response', {'message': 'Connected to the server'})
-
-@socketio.on('audio_input', namespace='/audio')
-def handle_audio_input(data):
-    audio_data = data.get('audio')
-    if audio_data is None:
-        emit('error', {'error': 'No audio data provided'})
-        return
-    
-    with sr.AudioFile(BytesIO(audio_data)) as source:
-        audio = recognizer.record(source)
-    
-    try:
-        text = recognizer.recognize_google(audio, language='ar')
-        emit('text_output', {'text': text})
-    except sr.UnknownValueError:
-        emit('error', {'error': 'Speech recognition could not understand audio'})
-    except sr.RequestError as e:
-        emit('error', {'error': f'Could not request results from Google Speech Recognition service: {e}'})
-
-@socketio.on('text_input', namespace='/text')
-def handle_text_input(data):
-    text = data.get('text')
-    if text is None:
-        emit('error', {'error': 'No text provided'})
-        return
-
-    try:
-        tts = gTTS(text, lang='ar')
-        buffer = BytesIO()
-        tts.write_to_fp(buffer)
-        buffer.seek(0)
-        audio_data = buffer.read()
-        emit('audio_output', {'audio': audio_data})
-    except Exception as e:
-        emit('error', {'error': str(e)})

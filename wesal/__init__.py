@@ -2,7 +2,7 @@ from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from datetime import timedelta
-from flask_socketio import SocketIO
+
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql://root:password123@localhost/asl_wesal'
@@ -13,7 +13,7 @@ app.config['PERMANENT_SESSION_LIFETIME'] =  timedelta(hours=2000)
 
 db = SQLAlchemy(app)
 migrate = Migrate(app,db)
-socketio = SocketIO(app)
+
 
 
 import wesal.routes 
