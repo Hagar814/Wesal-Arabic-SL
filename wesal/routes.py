@@ -1,6 +1,10 @@
-from flask import request, jsonify,Response, session
+from flask import request, jsonify,Response, session, send_file
 from wesal.utility import db_connection, db_write,generate_salt,generate_hash,db_read,send_login_token,validate_user,decode_jwt_token,generate_verification_code,users,courses,lessons
-from . import app
+from . import app, socketio
+from flask_socketio import emit
+import speech_recognition as sr
+from gtts import gTTS
+from io import BytesIO
 
 @app.route('/')
 @app.route('/user', methods=['GET','POST'])
@@ -53,8 +57,9 @@ def user_token(token):
                 return jsonify({"message":"The user does not have account"})
 
 # update password
-@app.route('/password/<int:id>', methods=['PUT'])
-def change_password(id):
+@app.route('/password/<string:token>', methods=['PUT'])
+def change_password(token):
+    id= decode_jwt_token(token)
     if request.method == 'PUT':
         new_password = request.json['password']
         new_confirm_password = request.json["confirm_password"]
@@ -73,8 +78,9 @@ def change_password(id):
                     return jsonify({"message":"Something went wrong"})
         
 # update username
-@app.route('/username/<int:id>', methods=['PUT'])
-def change_username(id):
+@app.route('/username/<string:token>', methods=['PUT'])
+def change_username(token):
+    id= decode_jwt_token(token)
     if request.method == 'PUT':
         new_username = request.json['username']
         if db_write(
@@ -289,9 +295,9 @@ def lesson(course_id):
         data = db_read("SELECT * FROM Lesson WHERE course_id = %s", (course_id,))
         
         # Convert binary fields to base64-encoded strings
-        for row in data:
-            row['video'] = base64.b64encode(row['video']).decode('utf-8') if row['video'] else None
-            row['documentation'] = base64.b64encode(row['documentation']).decode('utf-8') if row['documentation'] else None
+        #for row in data:
+        #    row['video'] = base64.b64encode(row['video']).decode('utf-8') if row['video'] else None
+        #    row['documentation'] = base64.b64encode(row['documentation']).decode('utf-8') if row['documentation'] else None
 
         return jsonify(data)
     else:
@@ -301,31 +307,49 @@ def lesson(course_id):
 #Create  
 @app.route('/lesson', methods=['POST'])
 def create_lesson():
-        
-    if request.method=='POST':
-        new_title = request.json['title']
-        new_description = request.json['description']
-        new_date_posted = request.json['date_posted']
-        new_thumbnail = request.json['thumbnail']
-        new_video = request.json['video']
-        new_documentation = request.json['documentation']
-        new_duration = request.json['duration']
-        new_course_id = request.json['course_id']
-        new_course_id = int(new_course_id)
-        if db_write(
-                """INSERT INTO lesson (title,description,date_posted,
-                thumbnail,video,documentation,duration,course_id)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
-            (new_title,new_description,new_date_posted,new_thumbnail,new_video,new_documentation,new_duration,new_course_id),):
-            #Successful
-                    return jsonify({"message":"New course is add successfully"})
+    if request.method == 'POST':
+        lessons = request.json
+        if isinstance(lessons, list):
+            for lesson in lessons:
+                new_title = lesson.get('title')
+                new_thumbnail = lesson.get('thumbnail')
+                new_video = lesson.get('video')
+                new_documentation = lesson.get('documentation')
+                new_duration = lesson.get('duration')
+                new_course_id = lesson.get('course_id')
+
+                # Convert course_id to int if it's not already
+                try:
+                    new_course_id = int(new_course_id)
+                except (TypeError, ValueError):
+                    return jsonify({"message": "Invalid course_id"}), 400
+
+                # Insert into the database
+                success = db_write(
+                    """INSERT INTO lesson (title, thumbnail, video, documentation, duration, course_id)
+                    VALUES (%s, %s, %s, %s, %s, %s)""",
+                    (new_title, new_thumbnail, new_video, new_documentation, new_duration, new_course_id)
+                )
+                if not success:
+                    return jsonify({"message": "Failed to add a new Lessons"}), 500
+
+            return jsonify({"message": "New Lessons added successfully"}), 201
         else:
-            # Failed
-                    return jsonify({"message":"New course is not add"})
+            return jsonify({"message": "Invalid input format"}), 400
     else:
-            # Failed
-            return jsonify({"message":"error in connection with database"})  
-    
+        return jsonify({"message": "Invalid request method"}), 405
+
+# update lesson name
+@app.route('/lesson_name/<int:id>', methods=['PUT'])
+def update_lesson_name(id):
+    if request.method == 'PUT':
+        new_title = request.json['title']
+        if db_write(
+                """UPDATE lesson SET title = %s WHERE id = %s""",
+                (new_title, id)):
+            return jsonify({'message': 'Data updated successfully'})
+        else:
+            return jsonify({"message": "Failed to update data"}) 
 #DELETE and update
 @app.route('/lesson/<int:id>', methods=['DELETE', 'PUT'])
 def update_lesson(id):
@@ -336,8 +360,6 @@ def update_lesson(id):
             return jsonify({'message': 'Failed to delete data'})
     elif request.method == 'PUT':
         new_title = request.json['title']
-        new_description = request.json['description']
-        new_date_posted = request.json['date_posted']
         new_thumbnail = request.json['thumbnail']
         new_video = request.json['video']
         new_documentation = request.json['documentation']
@@ -345,25 +367,69 @@ def update_lesson(id):
         new_course_id = request.json['course_id']
         new_course_id = int(new_course_id)
         if db_write(
-                """UPDATE lesson SET title = %s, description = %s, date_posted = %s, thumbnail = %s, 
+                """UPDATE lesson SET title = %s, thumbnail = %s, 
                 video = %s, documentation = %s, duration = %s, course_id = %s WHERE id = %s""",
-                (new_title, new_description, new_date_posted, new_thumbnail, new_video, new_documentation,
+                (new_title, new_thumbnail, new_video, new_documentation,
                 new_duration, new_course_id, id)):
             return jsonify({'message': 'Data updated successfully'})
         else:
             return jsonify({"message": "Failed to update data"})
+# enrolled courses
+@app.route('/enrolled_courses/<string:token>', methods=['GET','POST'])
+def enrolled_courses(token):
+    user_id=decode_jwt_token(token)
+    if request.method == 'GET':
+        data = db_read("SELECT * FROM enrolled_courses WHERE user_id = %s", (user_id,))
+        return jsonify(data)
+    elif request.method=='POST':
+        new_course_id = request.json['course_id']
+        new_user_id = user_id
+        if db_write(
+                """INSERT INTO enrolled_courses (course_id,user_id)
+                VALUES (%s, %s)""",
+            (new_course_id,new_user_id),):
+            #Successful
+                    return jsonify({"message":"Enrolled successfully"})
+        else:
+            #Failed
+                    return jsonify({"message":"You do not have an account, please Sign up"})
+        
+    else:
+            #Failed
+            return Response(status=400)
 
-
+# completed courses
+@app.route('/completed_courses/<string:token>', methods=['GET','POST'])
+def completed_courses(token):
+    user_id=decode_jwt_token(token)
+    if request.method == 'GET':
+        data = db_read("SELECT * FROM completed_courses WHERE user_id = %s", (user_id,))
+        return jsonify(data)
+    elif request.method=='POST':
+        new_course_id = request.json['course_id']
+        new_user_id = user_id
+        if db_write(
+                """INSERT INTO completed_courses (course_id,user_id)
+                VALUES (%s, %s)""",
+            (new_course_id,new_user_id),):
+            #Successful
+                    return jsonify({"message":"Congratulations on completing the course"})
+        else:
+            #Failed
+                    return jsonify({"message":"You do not have an account, please Sign up"})
+        
+    else:
+            #Failed
+            return Response(status=400)
 #Favorite
 #create and read
-@app.route('/favorite/<int:user_id>', methods=['GET','POST'])
-def favorite(user_id):
-    print (user_id)
+@app.route('/favorite/<string:token>', methods=['GET','POST'])
+def favorite(token):
+    user_id=decode_jwt_token(token)
     if request.method == 'GET':
         data = db_read("SELECT * FROM favorite WHERE user_id = %s", (user_id,))
         return jsonify(data)
     elif request.method=='POST':
-        print (user_id)
         new_text = request.json['text']
         new_user_id = user_id
         if db_write(
@@ -406,3 +472,79 @@ def delete_favorite(id):
     else:
         return jsonify({"message": "Invalid request method"}), 405
 
+recognizer = sr.Recognizer()
+
+# Speech-to-Text API endpoint
+@app.route('/speech-to-text', methods=['POST'])
+def speech_to_text():
+    if 'audio' not in request.files:
+        return jsonify({'error': 'No audio file provided'}), 400
+
+    audio_file = request.files['audio']
+    with sr.AudioFile(audio_file) as source:
+        audio = recognizer.record(source)
+    
+    try:
+        text = recognizer.recognize_google(audio, language='ar')
+        return jsonify({'text': text}), 200
+    except sr.UnknownValueError:
+        return jsonify({'error': 'Speech recognition could not understand audio'}), 400
+    except sr.RequestError as e:
+        return jsonify({'error': f'Could not request results from Google Speech Recognition service: {e}'}), 500
+
+# Text-to-Speech API endpoint
+@app.route('/text-to-speech', methods=['POST'])
+def text_to_speech():
+    data = request.get_json()
+    if 'text' not in data:
+        return jsonify({'error': 'No text provided'}), 400
+
+    text = data['text']
+    try:
+        tts = gTTS(text, lang='ar')
+        buffer = BytesIO()
+        tts.write_to_fp(buffer)
+        buffer.seek(0)
+        return send_file(buffer, mimetype='audio/mp3')
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# Socket.IO event handlers
+@socketio.on('connect', namespace='/audio')
+def handle_connect():
+    emit('response', {'message': 'Connected to the server'})
+
+@socketio.on('audio_input', namespace='/audio')
+def handle_audio_input(data):
+    audio_data = data.get('audio')
+    if audio_data is None:
+        emit('error', {'error': 'No audio data provided'})
+        return
+    
+    with sr.AudioFile(BytesIO(audio_data)) as source:
+        audio = recognizer.record(source)
+    
+    try:
+        text = recognizer.recognize_google(audio, language='ar')
+        emit('text_output', {'text': text})
+    except sr.UnknownValueError:
+        emit('error', {'error': 'Speech recognition could not understand audio'})
+    except sr.RequestError as e:
+        emit('error', {'error': f'Could not request results from Google Speech Recognition service: {e}'})
+
+@socketio.on('text_input', namespace='/text')
+def handle_text_input(data):
+    text = data.get('text')
+    if text is None:
+        emit('error', {'error': 'No text provided'})
+        return
+
+    try:
+        tts = gTTS(text, lang='ar')
+        buffer = BytesIO()
+        tts.write_to_fp(buffer)
+        buffer.seek(0)
+        audio_data = buffer.read()
+        emit('audio_output', {'audio': audio_data})
+    except Exception as e:
+        emit('error', {'error': str(e)})
